@@ -16,7 +16,7 @@ jobs:
     # Environment variables
     env:
       GITHUB_USER: maxNyst
-      SERVER_IP: maxnyst
+      SERVER_IP: 207.154.242.28
     steps:
       # Checkout our repository
       - uses: actions/checkout@v3
