@@ -1,0 +1,65 @@
+name: Deploy lab-cicd
+
+on:
+  # Automatically run this pipeline when our build pipeline completes
+  workflow_run:
+    workflows: [Build and test lab-cicd]
+    types: [completed]
+    branches: [main]
+
+jobs:
+  deploy:
+    # Run on a ubuntu-22.04 VM image
+    runs-on: ubuntu-22.04
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    name: Deploy lab-cicd
+    # Environment variables
+    env:
+      GITHUB_USER: maxNyst
+      SERVER_IP: maxnyst
+    steps:
+      # Checkout our repository
+      - uses: actions/checkout@v3
+
+      # Setup SSH keys and ssh settings
+      - name: Setup SSH
+        run: |
+          # Create .ssh directory
+          mkdir -p ~/.ssh
+          # Trust the servers keys
+          ssh-keyscan $SERVER_IP >> ~/.ssh/known_hosts
+          # Import ssh key
+          echo "$SSH_PRIVATE_KEY" > ~/.ssh/id_ed25519
+          # Set correct permissions on our ssh private key
+          chmod 400 ~/.ssh/id_ed25519
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+
+      - name: Login to registry
+        run: echo "$GITHUB_PASSWORD" | ssh -t deploy@$SERVER_IP "sudo docker login --username $GITHUB_USERNAME --password-stdin ghcr.io/$GITHUB_USER"
+        env:
+          GITHUB_USERNAME: "${{ github.actor }}"
+          GITHUB_PASSWORD: "${{ github.token }}"
+
+      - name: Copy docker-compose.yml to server
+        run: scp docker-compose.yml deploy@$SERVER_IP:/home/deploy/docker-compose.yml
+
+      - name: Download latest docker images
+        run: ssh deploy@$SERVER_IP sudo docker compose pull
+
+      - name: Start services
+        run: ssh deploy@$SERVER_IP "sudo docker compose down; sudo docker compose up -d"
+
+      - name: Check if everything is running correctly after 5s.
+        run: |
+          sleep 5
+          if ssh deploy@$SERVER_IP 'sudo docker compose ps -a --filter status=running| grep "lab-cicd"'; then
+            echo "Everything is running fine."
+            exit 0
+          else
+            echo "An issue has occured"
+            exit 1
+          fi
+
+      - name: Logout from the registry
+        run: ssh deploy@$SERVER_IP "sudo docker logout ghcr.io/$GITHUB_USERNAME"
